@@ -1,3 +1,4 @@
+# /Users/saraostdahl/development/TDT4225/tdt4225-assignment3/example(1).py
 from pprint import pprint 
 from DbConnector import DbConnector
 
