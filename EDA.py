@@ -42,6 +42,36 @@ def parse_list(cell):
     except Exception:
         return []
 
+def inspect_nested_structure(path: Path, column_name: str, n_samples: int = 10):
+    """
+    Prints the structure (keys and types) of nested objects inside a JSON-like column.
+    Works for credits.cast, credits.crew, movies_metadata.genres, etc.
+    """
+    print(f"\nInspecting structure of '{column_name}' from {path.name} (first {n_samples} non-empty rows):")
+    seen_keys = set()
+    count = 0
+
+    with path.open("r", encoding="utf-8", errors="replace", newline="") as f:
+        r = csv.DictReader(f)
+        for row in r:
+            arr = parse_list(row.get(column_name, ""))
+            if not arr:
+                continue
+            for obj in arr:
+                for k, v in obj.items():
+                    seen_keys.add(k)
+            count += 1
+            if count >= n_samples:
+                break
+
+    if not seen_keys:
+        print("  No keys found (empty or invalid column).")
+        return
+
+    print("  Keys found in nested objects:")
+    for key in sorted(seen_keys):
+        print(f"   - {key}")
+
 def text_hist_from_counts(counts_dict, title, max_bar=40, min_share=0.01):
     """Small horizontal bar chart in text from a {label: count} dict."""
     total = sum(counts_dict.values())
@@ -59,62 +89,139 @@ def text_hist_from_counts(counts_dict, title, max_bar=40, min_share=0.01):
 def pct(x, d):
     return f"{(100 * x / max(d, 1)):.1f}%"
 
-# --------------- MOVIES ----------------
 def detailed_movies_metadata(path: Path):
     """
-    Distributions for decade, language, genres, runtime, budget, revenue, votes.
-    Also prints a missingness table for core fields.
+    Detailed EDA for movies_metadata.csv.
+    Covers all 24 attributes: missingness, invalids, distributions, and summary counts.
     """
+
+    # --- counters for categorical + list-like fields ---
     decade_counts = Counter()
     genre_counts = Counter()
     lang_counts = Counter()
+    prod_company_counts = Counter()
+    prod_country_counts = Counter()
+    spoken_lang_counts = Counter()
+    status_counts = Counter()
 
+    # --- counters for numeric + binning ---
     runtime_bins = Counter()
     budget_bins  = Counter()
     revenue_bins = Counter()
     vote_avg_bins = Counter()
     vote_count_bins = Counter()
 
-    miss_release = 0
-    bad_dates = 0
+    # --- misc counters ---
+    adult_true = 0
+    video_true = 0
+    collection_present = 0
+    total = 0
 
-    # Missingness table accumulators
+    # --- missingness trackers ---
     fields_num = ["runtime", "budget", "revenue", "vote_average", "vote_count", "popularity"]
     fields_txt = ["title", "original_title", "overview", "tagline", "homepage", "status", "poster_path", "imdb_id"]
-    total = 0
-    miss = {f: 0 for f in fields_num + fields_txt + ["release_date"]}
-    zero  = {f: 0 for f in fields_num}  # numeric zeros only
+    fields_list = ["genres", "production_companies", "production_countries", "spoken_languages"]
+    fields_other = ["adult", "video", "belongs_to_collection", "release_date", "original_language", "id"]
+
+    miss = {f: 0 for f in fields_num + fields_txt + fields_list + fields_other}
+    zero  = {f: 0 for f in fields_num}
     invalid = {"release_date": 0}
 
     with path.open("r", encoding="utf-8", errors="replace", newline="") as f:
         r = csv.DictReader(f)
+        unique_ids = set()
+        dup_id = 0
+
         for row in r:
             total += 1
-            # release_date → decade + missing/invalid
+
+            # --- id ---
+            mid = as_str(row.get("id")).strip()
+            if not mid:
+                miss["id"] += 1
+            elif mid in unique_ids:
+                dup_id += 1
+            else:
+                unique_ids.add(mid)
+
+            # --- adult / video / collection ---
+            adult_val = as_str(row.get("adult")).strip().lower()
+            if adult_val == "true":
+                adult_true += 1
+            elif adult_val == "":
+                miss["adult"] += 1
+
+            video_val = as_str(row.get("video")).strip().lower()
+            if video_val == "true":
+                video_true += 1
+            elif video_val == "":
+                miss["video"] += 1
+
+            if as_str(row.get("belongs_to_collection")).strip():
+                collection_present += 1
+            else:
+                miss["belongs_to_collection"] += 1
+
+            # --- release_date ---
             rd = as_str(row.get("release_date")).strip()
             if not rd:
-                miss_release += 1
                 miss["release_date"] += 1
             else:
                 try:
                     dt = datetime.strptime(rd, "%Y-%m-%d")
                     decade_counts[(dt.year // 10) * 10] += 1
                 except Exception:
-                    bad_dates += 1
                     invalid["release_date"] += 1
 
-            # language
+            # --- language ---
             lang = as_str(row.get("original_language")).strip()
             if lang:
                 lang_counts[lang] += 1
+            else:
+                miss["original_language"] += 1
 
-            # genres
-            for g in parse_list(row.get("genres", "")):
+            # --- genres ---
+            genres = parse_list(row.get("genres", ""))
+            if not genres:
+                miss["genres"] += 1
+            for g in genres:
                 name = as_str(g.get("name")).strip()
                 if name:
                     genre_counts[name] += 1
 
-            # runtime bins
+            # --- production_companies ---
+            companies = parse_list(row.get("production_companies", ""))
+            if not companies:
+                miss["production_companies"] += 1
+            for c in companies:
+                name = as_str(c.get("name")).strip()
+                if name:
+                    prod_company_counts[name] += 1
+
+            # --- production_countries ---
+            countries = parse_list(row.get("production_countries", ""))
+            if not countries:
+                miss["production_countries"] += 1
+            for c in countries:
+                name = as_str(c.get("name")).strip()
+                if name:
+                    prod_country_counts[name] += 1
+
+            # --- spoken_languages ---
+            langs = parse_list(row.get("spoken_languages", ""))
+            if not langs:
+                miss["spoken_languages"] += 1
+            for c in langs:
+                name = as_str(c.get("name")).strip()
+                if name:
+                    spoken_lang_counts[name] += 1
+
+            # --- status ---
+            st = as_str(row.get("status")).strip()
+            if st:
+                status_counts[st] += 1
+
+            # --- runtime ---
             rt = to_float_safe(row.get("runtime"))
             if rt is None:
                 runtime_bins["missing"] += 1
@@ -133,7 +240,7 @@ def detailed_movies_metadata(path: Path):
             else:
                 runtime_bins["150+"] += 1
 
-            # money bins helper + missingness
+            # --- budget / revenue ---
             def money_bin(field, bins):
                 x = to_float_safe(row.get(field))
                 if x is None:
@@ -154,7 +261,7 @@ def detailed_movies_metadata(path: Path):
             money_bin("budget", budget_bins)
             money_bin("revenue", revenue_bins)
 
-            # vote_average (0.5 buckets) + missingness
+            # --- vote_average ---
             va = to_float_safe(row.get("vote_average"))
             if va is None:
                 vote_avg_bins["missing"] += 1
@@ -162,7 +269,7 @@ def detailed_movies_metadata(path: Path):
             else:
                 vote_avg_bins[f"{round(va * 2)/2:.1f}"] += 1
 
-            # vote_count + missingness/zero
+            # --- vote_count ---
             vc = to_float_safe(row.get("vote_count"))
             if vc is None:
                 vote_count_bins["missing"] += 1
@@ -179,41 +286,58 @@ def detailed_movies_metadata(path: Path):
             else:
                 vote_count_bins[">200"] += 1
 
-            # popularity (only missing/zero tracked)
+            # --- popularity ---
             pop = to_float_safe(row.get("popularity"))
             if pop is None:
                 miss["popularity"] += 1
             elif pop == 0:
                 zero["popularity"] += 1
 
-            # text field missingness
+            # --- text fields ---
             for ftxt in fields_txt:
                 if as_str(row.get(ftxt)).strip() == "":
                     miss[ftxt] += 1
 
-    # print distributions
+    # --- print results ---
     print("\n=== Detailed EDA: movies_metadata.csv ===")
-    if miss_release or bad_dates:
-        print(f"release_date missing: {miss_release:,}  |  bad format: {bad_dates:,}")
+    print(f"Total movies: {total:,}")
     text_hist_from_counts(decade_counts, "Movies by decade", min_share=0.01)
     text_hist_from_counts(lang_counts, "Original language (top)", min_share=0.02)
     text_hist_from_counts(genre_counts, "Genres (top)", min_share=0.02)
+    text_hist_from_counts(status_counts, "Status (top)", min_share=0.02)
+    text_hist_from_counts(prod_country_counts, "Production countries (top)", min_share=0.02)
+    text_hist_from_counts(spoken_lang_counts, "Spoken languages (top)", min_share=0.02)
+    text_hist_from_counts(prod_company_counts, "Production companies (top)", min_share=0.02)
     text_hist_from_counts(runtime_bins, "Runtime minutes (binned)")
     text_hist_from_counts(budget_bins, "Budget USD (binned)")
     text_hist_from_counts(revenue_bins, "Revenue USD (binned)")
     text_hist_from_counts(vote_avg_bins, "Vote average (0–10, 0.5 steps)")
     text_hist_from_counts(vote_count_bins, "Vote count (binned)")
 
-    # missingness table
+    # --- Missingness summary (24 total attributes) ---
     print("\nMissingness summary — movies_metadata.csv")
-    print(f"{'field':20} {'missing':>10} {'miss_%':>8} {'zero':>10} {'zero_%':>8} {'invalid':>10}")
-    for f in ["release_date"] + fields_num + fields_txt:
+    print(f"{'field':25} {'missing':>10} {'miss_%':>8} {'zero':>10} {'zero_%':>8} {'true_count':>12} {'invalid':>10}")
+    all_fields = fields_other + fields_num + fields_txt + fields_list
+    for f in all_fields:
         m = miss.get(f, 0)
         z = zero.get(f, 0)
         inv = invalid.get(f, 0)
+        t = 0
+        if f == "adult":
+            t = adult_true
+        elif f == "video":
+            t = video_true
+        elif f == "belongs_to_collection":
+            t = collection_present
+        elif f == "id":
+            t = len(unique_ids)
         m_pct = f"{(100*m/total):.1f}%" if total else "0.0%"
         z_pct = f"{(100*z/total):.1f}%" if total else "0.0%"
-        print(f"{f:20} {m:10,d} {m_pct:>8} {z:10,d} {z_pct:>8} {inv:10,d}")
+        print(f"{f:25} {m:10,d} {m_pct:>8} {z:10,d} {z_pct:>8} {t:12,d} {inv:10,d}")
+
+    print(f"\nDuplicates: {dup_id:,} duplicate IDs found.")
+
+
 
 # --------------- CREDITS ---------------
 def detailed_credits(path: Path):
@@ -222,14 +346,44 @@ def detailed_credits(path: Path):
     director_counts = Counter()
     n = 0
 
+    # NEW: movie id duplication/missingness
+    seen_movie_ids = set()
+    dup_movie_id_rows = 0
+    missing_id = 0
+    bad_id = 0
+
+    # NEW: per-movie duplicate people in cast/crew
+    movies_with_cast_dups = 0
+    total_cast_dups = 0
+    movies_with_crew_dups = 0
+    total_crew_dups = 0
+
     with path.open("r", encoding="utf-8", errors="replace", newline="") as f:
         r = csv.DictReader(f)
         for row in r:
             n += 1
+
+            # --- id checks ---
+            sid = as_str(row.get("id")).strip()
+            if not sid:
+                missing_id += 1
+            elif not sid.isdigit():
+                bad_id += 1
+            else:
+                if sid in seen_movie_ids:
+                    dup_movie_id_rows += 1
+                else:
+                    seen_movie_ids.add(sid)
+
+            # --- parse lists ---
             cast = parse_list(row.get("cast", ""))
             crew = parse_list(row.get("crew", ""))
+
+            # --- sizes ---
             cast_sizes.append(len(cast))
             crew_sizes.append(len(crew))
+
+            # --- director presence + counts ---
             found_dir = False
             for m in crew:
                 if as_str(m.get("job")).strip() == "Director":
@@ -240,9 +394,29 @@ def detailed_credits(path: Path):
             if found_dir:
                 has_director += 1
 
+            # --- duplicate people in cast (by person id) ---
+            cast_ids = [as_str(m.get("id")).strip() for m in cast if as_str(m.get("id")).strip() != ""]
+            if cast_ids:
+                c_dups = len(cast_ids) - len(set(cast_ids))
+                if c_dups > 0:
+                    movies_with_cast_dups += 1
+                    total_cast_dups += c_dups
+
+            # --- duplicate people in crew (by person id + job) ---
+            # using person id alone can double-count legit multi-job entries;
+            # here we detect exact person-id duplicates regardless of job.
+            crew_ids = [as_str(m.get("id")).strip() for m in crew if as_str(m.get("id")).strip() != ""]
+            if crew_ids:
+                cr_dups = len(crew_ids) - len(set(crew_ids))
+                if cr_dups > 0:
+                    movies_with_crew_dups += 1
+                    total_crew_dups += cr_dups
+
     print("\n=== Detailed EDA: credits.csv ===")
-    print(f"Movies with at least one Director entry: {has_director:,} / {n:,} "
-          f"({has_director / max(n,1):.1%})")
+    print(f"Rows: {n:,} | missing id: {missing_id:,} | non-numeric id: {bad_id:,} | duplicate id rows: {dup_movie_id_rows:,}")
+    print(f"Movies with at least one Director entry: {has_director:,} / {n:,} ({has_director / max(n,1):.1%})")
+    print(f"Movies with duplicate cast person-ids: {movies_with_cast_dups:,} (total duplicate cast entries: {total_cast_dups:,})")
+    print(f"Movies with duplicate crew person-ids: {movies_with_crew_dups:,} (total duplicate crew entries: {total_crew_dups:,})")
 
     def size_bins(arr):
         b = Counter()
@@ -257,6 +431,7 @@ def detailed_credits(path: Path):
     text_hist_from_counts(size_bins(cast_sizes), "Cast size (per movie)")
     text_hist_from_counts(size_bins(crew_sizes), "Crew size (per movie)")
     text_hist_from_counts(director_counts, "Most common directors (top)", min_share=0.003)
+
 
 def print_missing_credits_keywords(credits_path: Path, keywords_path: Path):
     # credits missingness
@@ -287,22 +462,77 @@ def print_missing_credits_keywords(credits_path: Path, keywords_path: Path):
           f"no Director: {no_director:,} ({pct(no_director, c_total)})")
     print(f"keywords:  rows={k_total:,} | keywords==0: {no_keywords:,} ({pct(no_keywords, k_total)})")
 
+
 # -------------- KEYWORDS ---------------
 def detailed_keywords(path: Path):
-    sizes = []
-    kw_counts = Counter()
+    rows = 0
+    missing_movie_id = 0
+    non_numeric_movie_id = 0
+    dup_movie_id_rows = 0
+    seen_movie_ids = set()
+
+    sizes = []                 # number of keywords per movie
+    kw_counts = Counter()      # global frequency of keyword names
+
+    # entry-level quality
+    total_kw_entries = 0
+    kw_missing_id = 0
+    kw_missing_name = 0
+    kw_missing_both = 0
+
+    # per-movie duplicate keyword ids
+    movies_with_dup_kw = 0
+    total_dup_kw_entries = 0
+
     with path.open("r", encoding="utf-8", errors="replace", newline="") as f:
         r = csv.DictReader(f)
         for row in r:
+            rows += 1
+            mid = as_str(row.get("id")).strip()
+            if not mid:
+                missing_movie_id += 1
+            elif not mid.isdigit():
+                non_numeric_movie_id += 1
+            else:
+                if mid in seen_movie_ids:
+                    dup_movie_id_rows += 1
+                else:
+                    seen_movie_ids.add(mid)
+
             kws = parse_list(row.get("keywords", ""))
             sizes.append(len(kws))
+
+            # collect per-movie ids to detect duplicates
+            ids_this_movie = []
+
             for k in kws:
-                name = as_str(k.get("name")).strip()
-                if name:
-                    kw_counts[name] += 1
+                total_kw_entries += 1
+                kid = as_str(k.get("id")).strip()
+                kname = as_str(k.get("name")).strip()
+
+                if kid == "":
+                    kw_missing_id += 1
+                if kname == "":
+                    kw_missing_name += 1
+                if kid == "" and kname == "":
+                    kw_missing_both += 1
+
+                if kname:
+                    kw_counts[kname.lower().strip()] += 1  # normalized global count
+
+                if kid != "":
+                    ids_this_movie.append(kid)
+
+            if ids_this_movie:
+                dups = len(ids_this_movie) - len(set(ids_this_movie))
+                if dups > 0:
+                    movies_with_dup_kw += 1
+                    total_dup_kw_entries += dups
 
     print("\n=== Detailed EDA: keywords.csv ===")
+    print(f"Rows: {rows:,} | missing movie id: {missing_movie_id:,} | non-numeric movie id: {non_numeric_movie_id:,} | duplicate movie-id rows: {dup_movie_id_rows:,}")
 
+    # how many keywords per movie (size distribution)
     def size_bins(arr):
         b = Counter()
         for x in arr:
@@ -311,9 +541,26 @@ def detailed_keywords(path: Path):
             elif x <= 10: b["4-10"] += 1
             else: b["11+"] += 1
         return b
-
     text_hist_from_counts(size_bins(sizes), "Keywords per movie")
+
+    # per-movie duplicate keywords
+    if rows:
+        share_movies_with_dups = 100 * movies_with_dup_kw / rows
+        print(f"Movies with duplicate keyword IDs: {movies_with_dup_kw:,} ({share_movies_with_dups:.1f}%) "
+              f"(total duplicate keyword entries: {total_dup_kw_entries:,})")
+
+    # entry-level missingness
+    if total_kw_entries:
+        pct_id = 100 * kw_missing_id / total_kw_entries
+        pct_name = 100 * kw_missing_name / total_kw_entries
+        pct_both = 100 * kw_missing_both / total_kw_entries
+        print(f"Keyword entries: {total_kw_entries:,} | missing id: {kw_missing_id:,} ({pct_id:.1f}%), "
+              f"missing name: {kw_missing_name:,} ({pct_name:.1f}%), "
+              f"missing both: {kw_missing_both:,} ({pct_both:.1f}%)")
+
+    # top keywords (normalized by lowercasing)
     text_hist_from_counts(kw_counts, "Top keywords", min_share=0.003)
+
 
 # -------------- RATINGS ----------------
 def detailed_ratings(path: Path):
@@ -588,3 +835,4 @@ def run_detailed_eda(base_dir: Path, use_ratings_small: bool = False):
 if __name__ == "__main__":
     run_detailed_eda(DATA_DIR)  # no small mode
 
+  
