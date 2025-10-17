@@ -89,6 +89,8 @@ def text_hist_from_counts(counts_dict, title, max_bar=40, min_share=0.01):
 def pct(x, d):
     return f"{(100 * x / max(d, 1)):.1f}%"
 
+# -------------- MOVIES --------------
+
 def detailed_movies_metadata(path: Path):
     """
     Detailed EDA for movies_metadata.csv.
@@ -117,6 +119,9 @@ def detailed_movies_metadata(path: Path):
     collection_present = 0
     total = 0
 
+    bad_id_non_numeric = 0
+    bad_id_examples = []
+
     # --- missingness trackers ---
     fields_num = ["runtime", "budget", "revenue", "vote_average", "vote_count", "popularity"]
     fields_txt = ["title", "original_title", "overview", "tagline", "homepage", "status", "poster_path", "imdb_id"]
@@ -135,14 +140,20 @@ def detailed_movies_metadata(path: Path):
         for row in r:
             total += 1
 
-            # --- id ---
-            mid = as_str(row.get("id")).strip()
-            if not mid:
+            # --- id (TMDB) ---
+            mid_raw = as_str(row.get("id")).strip()
+            if not mid_raw:
                 miss["id"] += 1
-            elif mid in unique_ids:
-                dup_id += 1
+            elif not mid_raw.isdigit():
+                bad_id_non_numeric += 1
+                if len(bad_id_examples) < 10:
+                    bad_id_examples.append(mid_raw)
             else:
-                unique_ids.add(mid)
+                # only count duplicates among valid numeric ids
+                if mid_raw in unique_ids:
+                    dup_id += 1
+                else:
+                    unique_ids.add(mid_raw)
 
             # --- adult / video / collection ---
             adult_val = as_str(row.get("adult")).strip().lower()
@@ -336,7 +347,10 @@ def detailed_movies_metadata(path: Path):
         print(f"{f:25} {m:10,d} {m_pct:>8} {z:10,d} {z_pct:>8} {t:12,d} {inv:10,d}")
 
     print(f"\nDuplicates: {dup_id:,} duplicate IDs found.")
-
+    print("\nID quality:")
+    print(f"non-numeric id rows: {bad_id_non_numeric}")
+    if bad_id_examples:
+        print("examples:", ", ".join(bad_id_examples))
 
 
 # --------------- CREDITS ---------------
