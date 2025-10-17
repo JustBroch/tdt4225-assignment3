@@ -562,28 +562,59 @@ def detailed_keywords(path: Path):
     text_hist_from_counts(kw_counts, "Top keywords", min_share=0.003)
 
 
-# -------------- RATINGS ----------------
 def detailed_ratings(path: Path):
     val_counts = Counter()
     per_user = Counter()
-    t_min, t_max = None, None
+    rows = 0
+    miss_user = miss_movie = miss_rating = miss_ts = 0
+    bad_user = bad_movie = bad_ts = bad_rating = 0
+    allowed_ratings = {0.5,1.0,1.5,2.0,2.5,3.0,3.5,4.0,4.5,5.0}
+    t_min = t_max = None
 
     with path.open("r", encoding="utf-8", errors="replace", newline="") as f:
         r = csv.DictReader(f)
         for row in r:
-            rv = to_float_safe(row.get("rating"))
-            if rv is not None:
-                val_counts[f"{round(rv * 2)/2:.1f}"] += 1
-            uid = as_str(row.get("userId")).strip()
-            if uid:
-                per_user[uid] += 1
-            ts = to_float_safe(row.get("timestamp"))
-            if ts is not None:
-                ts = int(ts)
+            rows += 1
+            su, sm, sr, st = map(lambda x: as_str(row.get(x, "")).strip(), ["userId", "movieId", "rating", "timestamp"])
+
+            # --- basic missingness ---
+            if not su: miss_user += 1
+            if not sm: miss_movie += 1
+            if not sr: miss_rating += 1
+            if not st: miss_ts += 1
+
+            # --- validity checks ---
+            if su and not su.isdigit(): bad_user += 1
+            if sm and not sm.isdigit(): bad_movie += 1
+            if st and not st.isdigit(): bad_ts += 1
+
+            try:
+                rv = float(sr)
+                if rv not in allowed_ratings:
+                    bad_rating += 1
+                else:
+                    val_counts[f"{rv:.1f}"] += 1
+            except Exception:
+                if sr: bad_rating += 1
+
+            # --- user activity ---
+            if su:
+                per_user[su] += 1
+
+            # --- timestamp range ---
+            if st.isdigit():
+                ts = int(st)
                 t_min = ts if t_min is None else min(t_min, ts)
                 t_max = ts if t_max is None else max(t_max, ts)
 
     print("\n=== Detailed EDA: ratings.csv ===")
+    print(f"Rows: {rows:,}")
+    print("Missing/invalid counts:")
+    print(f"  userId    → missing: {miss_user} | non-integer: {bad_user}")
+    print(f"  movieId   → missing: {miss_movie} | non-integer: {bad_movie}")
+    print(f"  rating    → missing: {miss_rating} | invalid/outside 0.5–5.0: {bad_rating}")
+    print(f"  timestamp → missing: {miss_ts} | non-integer: {bad_ts}")
+
     text_hist_from_counts(val_counts, "Rating values (0.5 steps)", min_share=0.01)
 
     def user_bins(cnts: Counter):
@@ -597,59 +628,171 @@ def detailed_ratings(path: Path):
 
     text_hist_from_counts(user_bins(per_user), "Ratings per user")
 
-    if t_min is not None and t_max is not None:
-        print(f"Time span: {time.strftime('%Y-%m-%d', time.gmtime(t_min))} → "
-              f"{time.strftime('%Y-%m-%d', time.gmtime(t_max))}")
+    if t_min and t_max:
+        print(f"Time span: {time.strftime('%Y-%m-%d', time.gmtime(t_min))} → {time.strftime('%Y-%m-%d', time.gmtime(t_max))}")
 
-def validate_rating_values(path: Path):
-    """Check rating values are in the expected MovieLens set {0.5, …, 5.0}."""
-    allowed = {0.5,1.0,1.5,2.0,2.5,3.0,3.5,4.0,4.5,5.0}
-    bad = 0; total = 0
-    with path.open("r", encoding="utf-8", errors="replace", newline="") as f:
+    total_rows = 26_024_289
+    seen = set()
+    dup_exact = 0
+    rows = 0
+
+    ''' 
+    with open(path, "r", encoding="utf-8", errors="replace", newline="") as f:
         r = csv.DictReader(f)
         for row in r:
-            total += 1
-            rv = to_float_safe(row.get("rating"))
-            if rv is None or rv not in allowed:
-                bad += 1
-    print("\nValidity — ratings.csv")
-    print(f"ratings with invalid/missing value: {bad:,} / {total:,}")
+            rows += 1
+            key = (row["userId"], row["movieId"], row["rating"], row["timestamp"])
+            if key in seen:
+                dup_exact += 1
+            else:
+                seen.add(key)
 
-# -------------- LINKS ----------------
-def detailed_links(path: Path):
+            if rows % 1_000_000 == 0:
+                pct = (rows / total_rows) * 100
+                print(f"{pct:5.1f}% done ({rows:,}/{total_rows:,})")
+
+    print(f"\nExact duplicate rating events: {dup_exact:,}")
+    '''
+
+
+
+# -------------- LINKS (fast) ----------------
+def detailed_links(path: Path, max_examples: int = 5):
     rows = 0
-    movie_ids = set()
-    tmdb_present = 0
-    imdb_present = 0
-    dup_movie_ids = 0
-    seen_movie_ids = set()
-    neither = 0
+
+    # missing/type
+    miss_mid = miss_tmdb = miss_imdb = 0
+    bad_mid  = bad_tmdb  = bad_imdb  = 0
+
+    # presence
+    tmdb_present = imdb_present = neither = 0
+
+    # row-level duplicates (by value seen before)
+    seen_movie_ids = set();  dup_movie_id_rows = 0
+    seen_tmdb_ids  = set();  dup_tmdb_id_rows  = 0
+    seen_imdb_ids  = set();  dup_imdb_id_rows  = 0
+
+    # one-to-one conflicts (track only first value + small sample of conflicts)
+    mid_first_tmdb = {}   # movieId -> first tmdbId seen
+    mid_first_imdb = {}   # movieId -> first imdbId seen
+    tmdb_first_mid = {}   # tmdbId  -> first movieId seen
+    imdb_first_mid = {}   # imdbId  -> first movieId seen
+
+    mid_multi_tmdb_cnt = 0; mid_multi_tmdb_examples = []
+    mid_multi_imdb_cnt = 0; mid_multi_imdb_examples = []
+    tmdb_multi_mid_cnt = 0; tmdb_multi_mid_examples = []
+    imdb_multi_mid_cnt = 0; imdb_multi_mid_examples = []
 
     with path.open("r", encoding="utf-8", errors="replace", newline="") as f:
         r = csv.DictReader(f)
         for row in r:
             rows += 1
-            mid = as_str(row.get("movieId")).strip()
-            tmdb = as_str(row.get("tmdbId")).strip()
-            imdb = as_str(row.get("imdbId")).strip()
+            smid  = as_str(row.get("movieId")).strip()
+            stmdb = as_str(row.get("tmdbId")).strip()
+            simdb = as_str(row.get("imdbId")).strip()
 
-            if mid:
-                if mid in seen_movie_ids:
-                    dup_movie_ids += 1
-                else:
-                    seen_movie_ids.add(mid)
-                    movie_ids.add(mid)
+            # missing/type (MovieLens imdbId is numeric digits *without* 'tt')
+            if smid  == "": miss_mid  += 1
+            if stmdb == "": miss_tmdb += 1
+            if simdb == "": miss_imdb += 1
 
-            if tmdb: tmdb_present += 1
-            if imdb: imdb_present += 1
-            if not tmdb and not imdb: neither += 1
+            is_mid_int  = smid.isdigit()  if smid  else False
+            is_tmdb_int = stmdb.isdigit() if stmdb else False
+            is_imdb_int = simdb.isdigit() if simdb else False
 
-    print("\n=== Detailed EDA: links.csv ===")
-    print(f"rows={rows:,} | unique movieId={len(movie_ids):,} | duplicate movieId rows={dup_movie_ids:,}")
-    if rows:
-        print(f"tmdbId present: {tmdb_present:,} ({(100*tmdb_present/rows):.2f}%)")
-        print(f"imdbId present: {imdb_present:,} ({(100*imdb_present/rows):.2f}%)")
-        print(f"neither tmdbId nor imdbId: {neither:,} ({(100*neither/rows):.2f}%)")
+            if smid  and not is_mid_int:  bad_mid  += 1
+            if stmdb and not is_tmdb_int: bad_tmdb += 1
+            if simdb and not is_imdb_int: bad_imdb += 1
+
+            if stmdb: tmdb_present += 1
+            if simdb: imdb_present += 1
+            if not stmdb and not simdb: neither += 1
+
+            # row-level duplicates (by id value)
+            if smid:
+                if smid in seen_movie_ids: dup_movie_id_rows += 1
+                else: seen_movie_ids.add(smid)
+            if stmdb:
+                if stmdb in seen_tmdb_ids: dup_tmdb_id_rows += 1
+                else: seen_tmdb_ids.add(stmdb)
+            if simdb:
+                if simdb in seen_imdb_ids: dup_imdb_id_rows += 1
+                else: seen_imdb_ids.add(simdb)
+
+            # one-to-one conflict detection — store only first mapping
+            if is_mid_int and is_tmdb_int:
+                prev = mid_first_tmdb.get(smid)
+                if prev is None:
+                    mid_first_tmdb[smid] = stmdb
+                elif prev != stmdb:
+                    mid_multi_tmdb_cnt += 1
+                    if len(mid_multi_tmdb_examples) < max_examples:
+                        mid_multi_tmdb_examples.append((smid, prev, stmdb))
+            if is_mid_int and is_imdb_int:
+                prev = mid_first_imdb.get(smid)
+                if prev is None:
+                    mid_first_imdb[smid] = simdb
+                elif prev != simdb:
+                    mid_multi_imdb_cnt += 1
+                    if len(mid_multi_imdb_examples) < max_examples:
+                        mid_multi_imdb_examples.append((smid, prev, simdb))
+            if is_tmdb_int and is_mid_int:
+                prev = tmdb_first_mid.get(stmdb)
+                if prev is None:
+                    tmdb_first_mid[stmdb] = smid
+                elif prev != smid:
+                    tmdb_multi_mid_cnt += 1
+                    if len(tmdb_multi_mid_examples) < max_examples:
+                        tmdb_multi_mid_examples.append((stmdb, prev, smid))
+            if is_imdb_int and is_mid_int:
+                prev = imdb_first_mid.get(simdb)
+                if prev is None:
+                    imdb_first_mid[simdb] = smid
+                elif prev != smid:
+                    imdb_multi_mid_cnt += 1
+                    if len(imdb_multi_mid_examples) < max_examples:
+                        imdb_multi_mid_examples.append((simdb, prev, smid))
+
+    # --- print summary ---
+    print("\n=== Detailed EDA: links.csv (fast) ===")
+    print(f"Rows: {rows:,}")
+    print("Missing/invalid counts:")
+    print(f"  movieId → missing: {miss_mid} | non-integer: {bad_mid}")
+    print(f"  tmdbId  → missing: {miss_tmdb} | non-integer: {bad_tmdb}")
+    print(f"  imdbId  → missing: {miss_imdb} | non-integer: {bad_imdb}")
+
+    print("\nPresence:")
+    print(f"  tmdbId present: {tmdb_present:,} ({(100*tmdb_present/max(rows,1)):.2f}%)")
+    print(f"  imdbId present: {imdb_present:,} ({(100*imdb_present/max(rows,1)):.2f}%)")
+    print(f"  neither present: {neither:,} ({(100*neither/max(rows,1)):.2f}%)")
+
+    print("\nRow-level duplicates:")
+    print(f"  duplicate movieId rows: {dup_movie_id_rows:,}")
+    print(f"  duplicate tmdbId rows:  {dup_tmdb_id_rows:,}")
+    print(f"  duplicate imdbId rows:  {dup_imdb_id_rows:,}")
+
+    print("\nMapping conflicts (should be one-to-one):")
+    print(f"  movieId→tmdbId conflicts: {mid_multi_tmdb_cnt}")
+    if mid_multi_tmdb_examples:
+        print("   examples (movieId: first_tmdbId -> other_tmdbId):")
+        for smid, first_t, other_t in mid_multi_tmdb_examples:
+            print(f"    {smid}: {first_t} -> {other_t}")
+    print(f"  tmdbId→movieId conflicts: {tmdb_multi_mid_cnt}")
+    if tmdb_multi_mid_examples:
+        print("   examples (tmdbId: first_movieId -> other_movieId):")
+        for t, first_m, other_m in tmdb_multi_mid_examples:
+            print(f"    {t}: {first_m} -> {other_m}")
+    print(f"  movieId→imdbId conflicts: {mid_multi_imdb_cnt}")
+    if mid_multi_imdb_examples:
+        print("   examples (movieId: first_imdbId -> other_imdbId):")
+        for smid, first_i, other_i in mid_multi_imdb_examples:
+            print(f"    {smid}: {first_i} -> {other_i}")
+    print(f"  imdbId→movieId conflicts: {imdb_multi_mid_cnt}")
+    if imdb_multi_mid_examples:
+        print("   examples (imdbId: first_movieId -> other_movieId):")
+        for i, first_m, other_m in imdb_multi_mid_examples:
+            print(f"    {i}: {first_m} -> {other_m}")
+
 
 
 # -------- duplicates & joins ----------
@@ -748,7 +891,6 @@ def run_detailed_eda(base_dir: Path, use_ratings_small: bool = False):
     p_ratings = base_dir / "ratings.csv"
     if p_ratings.exists():
         detailed_ratings(p_ratings)
-        validate_rating_values(p_ratings)
 
     # Extended join coverage across all CSVs
     if p_movies.exists() and p_credits.exists() and p_keywords.exists() and p_links.exists() and p_ratings.exists():
