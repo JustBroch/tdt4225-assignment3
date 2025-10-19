@@ -1,3 +1,20 @@
+# data files
 *.csv
 *.jsonl
 *.ndjson
+
+# environment/config
+.env
+DbConnector.py
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# virtual env
+.venv/
+venv/
+
+# system files
+.DS_Store
