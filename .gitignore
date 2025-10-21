@@ -18,3 +18,5 @@ venv/
 
 # system files
 .DS_Store
+
+docker-compose.yml
