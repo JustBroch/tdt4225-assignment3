@@ -31,45 +31,53 @@ import ast
 from datetime import datetime
 
 # -------------------- CONFIG --------------------
-DATA_DIR = Path("/Users/saraostdahl/development/TDT4225/tdt4225-assignment3/data/raw")
-OUT_DIR  = Path("./clean_out")
+DATA_DIR = Path("./data/raw")
+OUT_DIR = Path("./clean_out")
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # File names
-F_MOVIES   = "movies_metadata.csv"
-F_CREDITS  = "credits.csv"
+F_MOVIES = "movies_metadata.csv"
+F_CREDITS = "credits.csv"
 F_KEYWORDS = "keywords.csv"
-F_LINKS    = "links.csv"           # use links_small.csv if you want, but final run should use links.csv
-F_RATINGS  = "ratings.csv"         # for quick tests, swap to ratings_small.csv
+F_LINKS = (
+    "links.csv"  # use links_small.csv if you want, but final run should use links.csv
+)
+F_RATINGS = "ratings.csv"  # for quick tests, swap to ratings_small.csv
 
 # Outputs
-O_MOVIES   = OUT_DIR / "clean_movies.jsonl"
-O_CREDITS  = OUT_DIR / "clean_credits.jsonl"
+O_MOVIES = OUT_DIR / "clean_movies.jsonl"
+O_CREDITS = OUT_DIR / "clean_credits.jsonl"
 O_KEYWORDS = OUT_DIR / "clean_keywords.jsonl"
-O_LINKS    = OUT_DIR / "clean_links.jsonl"
-O_RATINGS  = OUT_DIR / "clean_ratings.jsonl"
+O_LINKS = OUT_DIR / "clean_links.jsonl"
+O_RATINGS = OUT_DIR / "clean_ratings.jsonl"
 
 # ------------------------------------------------
+
 
 def as_str(x):
     return "" if x is None else str(x)
 
+
 def to_float_or_none(x):
     try:
         s = as_str(x).strip()
-        if s == "": return None
+        if s == "":
+            return None
         v = float(s)
         return v
     except Exception:
         return None
 
+
 def to_int_or_none(x):
     try:
         s = as_str(x).strip()
-        if s == "": return None
+        if s == "":
+            return None
         return int(s)
     except Exception:
         return None
+
 
 def parse_list(cell):
     """Parse JSON-ish arrays with single quotes. Always returns list."""
@@ -82,6 +90,7 @@ def parse_list(cell):
     except Exception:
         return []
 
+
 def parse_iso_date_or_none(s):
     s = as_str(s).strip()
     if not s:
@@ -92,13 +101,15 @@ def parse_iso_date_or_none(s):
     except Exception:
         return None
 
+
 # ---------------- MOVIES ----------------
 def clean_movies(src: Path, dst: Path):
-    seen_ids = set()    # for TMDB id duplicates
-    seen_imdb = set()   # for imdb duplicates
+    seen_ids = set()  # for TMDB id duplicates
+    seen_imdb = set()  # for imdb duplicates
 
-    with src.open("r", encoding="utf-8", errors="replace", newline="") as f, \
-         dst.open("w", encoding="utf-8") as out:
+    with src.open("r", encoding="utf-8", errors="replace", newline="") as f, dst.open(
+        "w", encoding="utf-8"
+    ) as out:
         r = csv.DictReader(f)
         for row in r:
             tmdb_id_raw = as_str(row.get("id")).strip()
@@ -157,9 +168,9 @@ def clean_movies(src: Path, dst: Path):
                 status = "Released"  # default per your decision
 
             overview = as_str(row.get("overview")).strip() or None
-            tagline  = as_str(row.get("tagline")).strip() or None
+            tagline = as_str(row.get("tagline")).strip() or None
             homepage = as_str(row.get("homepage")).strip() or None
-            poster   = as_str(row.get("poster_path")).strip() or None
+            poster = as_str(row.get("poster_path")).strip() or None
 
             imdb_id = as_str(row.get("imdb_id")).strip() or None
             if imdb_id:
@@ -171,7 +182,9 @@ def clean_movies(src: Path, dst: Path):
 
             # belongs_to_collection stays null (don’t force [])
             btc_raw = as_str(row.get("belongs_to_collection")).strip()
-            belongs = None if btc_raw in ("", "null", "None") else btc_raw  # keep raw JSONish string for now (or parse if you want)
+            belongs = (
+                None if btc_raw in ("", "null", "None") else btc_raw
+            )  # keep raw JSONish string for now (or parse if you want)
             if belongs not in (None, ""):
                 # try parse object if present (safe)
                 try:
@@ -194,7 +207,7 @@ def clean_movies(src: Path, dst: Path):
             spoken_langs = norm_list("spoken_languages")
 
             doc = {
-                "_id": int(tmdb_id_raw),                  # make tmdb id the MongoDB _id
+                "_id": int(tmdb_id_raw),  # make tmdb id the MongoDB _id
                 "title": title,
                 "original_title": original_title or None,
                 "original_language": original_language,
@@ -217,16 +230,18 @@ def clean_movies(src: Path, dst: Path):
                 "production_companies": prod_companies,
                 "production_countries": prod_countries,
                 "spoken_languages": spoken_langs,
-                "belongs_to_collection": belongs
+                "belongs_to_collection": belongs,
             }
             out.write(json.dumps(doc, ensure_ascii=False) + "\n")
+
 
 # ---------------- CREDITS ----------------
 def clean_credits(src: Path, dst: Path):
     seen_movie_rows = set()  # drop duplicate movie rows (44 in your EDA)
 
-    with src.open("r", encoding="utf-8", errors="replace", newline="") as f, \
-         dst.open("w", encoding="utf-8") as out:
+    with src.open("r", encoding="utf-8", errors="replace", newline="") as f, dst.open(
+        "w", encoding="utf-8"
+    ) as out:
         r = csv.DictReader(f)
         for row in r:
             tmdb_id = as_str(row.get("id")).strip()
@@ -278,28 +293,33 @@ def clean_credits(src: Path, dst: Path):
                 if key in crew_seen:
                     continue
                 crew_seen.add(key)
-                crew_clean.append({
-                    "credit_id": m.get("credit_id"),
-                    "department": m.get("department"),
-                    "gender": m.get("gender"),
-                    "id": pid,
-                    "job": job or None,
-                    "name": name or None,
-                    "profile_path": m.get("profile_path"),
-                })
+                crew_clean.append(
+                    {
+                        "credit_id": m.get("credit_id"),
+                        "department": m.get("department"),
+                        "gender": m.get("gender"),
+                        "id": pid,
+                        "job": job or None,
+                        "name": name or None,
+                        "profile_path": m.get("profile_path"),
+                    }
+                )
 
             doc = {
                 "_id": int(tmdb_id),  # store movie id as Mongo _id for fast lookup
-                "cast": cast_clean,   # keep [] if empty
-                "crew": crew_clean
+                "cast": cast_clean,  # keep [] if empty
+                "crew": crew_clean,
             }
             out.write(json.dumps(doc, ensure_ascii=False) + "\n")
+
 
 # ---------------- KEYWORDS ----------------
 def clean_keywords(src: Path, dst: Path):
     # merge duplicate movie rows: union keyword ids
     merged = {}  # tmdb_id -> dict(id, keywords=[{id,name},...])
-    for row in csv.DictReader(src.open("r", encoding="utf-8", errors="replace", newline="")):
+    for row in csv.DictReader(
+        src.open("r", encoding="utf-8", errors="replace", newline="")
+    ):
         tmdb_id = as_str(row.get("id")).strip()
         if not tmdb_id.isdigit():
             continue
@@ -311,7 +331,9 @@ def clean_keywords(src: Path, dst: Path):
             merged[tmdb_id] = entry
 
         # dedupe within a movie by keyword.id; drop items missing id or name
-        seen_kw = {str(k.get("id")) for k in entry["keywords"] if k.get("id") not in (None, "")}
+        seen_kw = {
+            str(k.get("id")) for k in entry["keywords"] if k.get("id") not in (None, "")
+        }
         for k in kws or []:
             kid = as_str(k.get("id")).strip()
             kname = as_str(k.get("name")).strip()
@@ -327,6 +349,7 @@ def clean_keywords(src: Path, dst: Path):
             # keep empty list [] when none
             out.write(json.dumps(doc, ensure_ascii=False) + "\n")
 
+
 # ---------------- LINKS ----------------
 def clean_links(src: Path, dst: Path):
     """
@@ -334,12 +357,12 @@ def clean_links(src: Path, dst: Path):
     Keep missing tmdbId as null (can still be useful for imdb-only joins if needed).
     """
     tmdb_to_movie = {}  # tmdbId -> first movieId
-    seen_rows = []      # store rows to write after resolving conflicts
+    seen_rows = []  # store rows to write after resolving conflicts
 
     with src.open("r", encoding="utf-8", errors="replace", newline="") as f:
         r = csv.DictReader(f)
         for row in r:
-            smid  = as_str(row.get("movieId")).strip()
+            smid = as_str(row.get("movieId")).strip()
             stmdb = as_str(row.get("tmdbId")).strip()
             simdb = as_str(row.get("imdbId")).strip()
 
@@ -361,7 +384,17 @@ def clean_links(src: Path, dst: Path):
     with dst.open("w", encoding="utf-8") as out:
         for doc in seen_rows:
             # use Mongo _id as MovieLens movieId for easy backref
-            out.write(json.dumps({"_id": doc["_id_ml"], "tmdbId": doc["tmdbId"], "imdbId": doc["imdbId"]}) + "\n")
+            out.write(
+                json.dumps(
+                    {
+                        "_id": doc["_id_ml"],
+                        "tmdbId": doc["tmdbId"],
+                        "imdbId": doc["imdbId"],
+                    }
+                )
+                + "\n"
+            )
+
 
 # ---------------- RATINGS ----------------
 def clean_ratings(src: Path, dst: Path, links_path: Path):
@@ -377,10 +410,11 @@ def clean_ratings(src: Path, dst: Path, links_path: Path):
             if d.get("tmdbId") is not None:
                 ml_to_tmdb[int(d["_id"])] = int(d["tmdbId"])
 
-    allowed = {0.5,1.0,1.5,2.0,2.5,3.0,3.5,4.0,4.5,5.0}
+    allowed = {0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0}
 
-    with src.open("r", encoding="utf-8", errors="replace", newline="") as f, \
-         dst.open("w", encoding="utf-8") as out:
+    with src.open("r", encoding="utf-8", errors="replace", newline="") as f, dst.open(
+        "w", encoding="utf-8"
+    ) as out:
         r = csv.DictReader(f)
         for row in r:
             su = to_int_or_none(row.get("userId"))
@@ -401,20 +435,21 @@ def clean_ratings(src: Path, dst: Path, links_path: Path):
             doc = {
                 # Keep natural Mongo ObjectId (let mongoimport assign) or set your own if you want
                 "userId": su,
-                "movieId": sm,          # MovieLens id
-                "tmdbId": tmdb,         # Joined TMDB id for cross-collection queries
+                "movieId": sm,  # MovieLens id
+                "tmdbId": tmdb,  # Joined TMDB id for cross-collection queries
                 "rating": sr,
-                "timestamp": st
+                "timestamp": st,
             }
             out.write(json.dumps(doc) + "\n")
 
+
 # ---------------- MAIN ----------------
 def main():
-    movies_csv   = DATA_DIR / F_MOVIES
-    credits_csv  = DATA_DIR / F_CREDITS
+    movies_csv = DATA_DIR / F_MOVIES
+    credits_csv = DATA_DIR / F_CREDITS
     keywords_csv = DATA_DIR / F_KEYWORDS
-    links_csv    = DATA_DIR / F_LINKS
-    ratings_csv  = DATA_DIR / F_RATINGS
+    links_csv = DATA_DIR / F_LINKS
+    ratings_csv = DATA_DIR / F_RATINGS
 
     print("Cleaning movies...")
     clean_movies(movies_csv, O_MOVIES)
@@ -437,11 +472,22 @@ def main():
     print(f"  -> {O_RATINGS}")
 
     print("\n All done. Files ready for mongoimport, e.g.:")
-    print(f"mongoimport --db your_db --collection movies   --file {O_MOVIES}   --jsonArray=false")
-    print(f"mongoimport --db your_db --collection credits  --file {O_CREDITS}  --jsonArray=false")
-    print(f"mongoimport --db your_db --collection keywords --file {O_KEYWORDS} --jsonArray=false")
-    print(f"mongoimport --db your_db --collection links    --file {O_LINKS}    --jsonArray=false")
-    print(f"mongoimport --db your_db --collection ratings  --file {O_RATINGS}  --jsonArray=false")
+    print(
+        f"mongoimport --db your_db --collection movies   --file {O_MOVIES}   --jsonArray=false"
+    )
+    print(
+        f"mongoimport --db your_db --collection credits  --file {O_CREDITS}  --jsonArray=false"
+    )
+    print(
+        f"mongoimport --db your_db --collection keywords --file {O_KEYWORDS} --jsonArray=false"
+    )
+    print(
+        f"mongoimport --db your_db --collection links    --file {O_LINKS}    --jsonArray=false"
+    )
+    print(
+        f"mongoimport --db your_db --collection ratings  --file {O_RATINGS}  --jsonArray=false"
+    )
+
 
 if __name__ == "__main__":
     main()
