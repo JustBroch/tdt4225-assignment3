@@ -37,3 +37,15 @@
 -   Raw CSV files in `data/movies/`
 -   Cleaned JSONL files in `clean_out/`
 -   Collections: movies, credits, keywords, links, ratings
+
+## How to Query
+
+### Using Jupyter Notebook (Recommended)
+
+1. **Navigate to the queries.ipynb:**
+
+2. **Run queries interactively:**
+
+    - Inside `queries.ipynb` all ten queries are listed in separate code blocks.
+    - Execute cells one by one to see results
+    - Modify queries and re-run for experimentation
