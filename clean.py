@@ -10,18 +10,6 @@ Outputs (in OUT_DIR):
   - clean_keywords.jsonl
   - clean_links.jsonl
   - clean_ratings.jsonl          (keeps only ratings that map to a valid tmdbId in links)
-
-Notes:
-- Uses only stdlib. No pandas required.
-- Parsing of embedded lists uses ast.literal_eval.
-- Dates normalized to ISO YYYY-MM-DD (invalid/missing -> null).
-- Numeric zeros treated per your decisions (budget/revenue/runtime zeros -> null; vote_count keeps zeros).
-- vote_average kept as-is; if vote_count == 0 we set vote_average to null (indicates "no votes yet").
-- belongs_to_collection stays null (not []), other list fields -> [] when missing.
-- credits: drop entries missing BOTH id and name; dedupe cast by person id (keep lowest order), crew by (person id, job).
-- keywords: merge duplicate movie rows, dedupe items by keyword.id, drop missing id/name, lowercase name only for dedupe compare.
-- links: keep first mapping per tmdbId (drop conflicting later rows), keep missing tmdbId as null.
-- ratings: cast types; drop ratings whose movieId does not map to a tmdbId present in clean_links.
 """
 
 from pathlib import Path
