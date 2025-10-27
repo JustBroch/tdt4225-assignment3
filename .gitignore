@@ -5,7 +5,6 @@
 
 # environment/config
 .env
-DbConnector.py
 
 # Python cache
 __pycache__/
