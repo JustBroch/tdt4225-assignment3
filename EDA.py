@@ -22,9 +22,11 @@ USE_RATINGS_SMALL = False  # set True for faster runs
 
 # --------------- HELPERS ----------------
 def as_str(x):
+    """Return a safe string for whitespace checks (handles None)."""
     return "" if x is None else str(x)
 
 def to_float_safe(x):
+    """Safely convert value to float or return None for invalid/missing."""
     try:
         s = as_str(x).strip()
         return float(s) if s else None
@@ -87,6 +89,7 @@ def text_hist_from_counts(counts_dict, title, max_bar=40, min_share=0.01):
         print(f"  {str(label):15} {c:>10,}  {'█' * n}  ({share:.1%})")
 
 def pct(x, d):
+    """Return percentage string of x relative to d (with one decimal)."""
     return f"{(100 * x / max(d, 1)):.1f}%"
 
 # -------------- MOVIES --------------

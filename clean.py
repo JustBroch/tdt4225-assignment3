@@ -55,10 +55,12 @@ O_RATINGS = OUT_DIR / "clean_ratings.jsonl"
 
 
 def as_str(x):
+    """Return a safe string for whitespace checks (handles None)."""
     return "" if x is None else str(x)
 
 
 def to_float_or_none(x):
+    """Parse a value to float; return None on failure or blank."""
     try:
         s = as_str(x).strip()
         if s == "":
@@ -70,6 +72,7 @@ def to_float_or_none(x):
 
 
 def to_int_or_none(x):
+    """Parse a value to int; return None on failure or blank."""
     try:
         s = as_str(x).strip()
         if s == "":
@@ -92,6 +95,7 @@ def parse_list(cell):
 
 
 def parse_iso_date_or_none(s):
+    """Return ISO date 'YYYY-MM-DD' or None for invalid/missing values."""
     s = as_str(s).strip()
     if not s:
         return None

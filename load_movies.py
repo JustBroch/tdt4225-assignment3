@@ -89,7 +89,7 @@ def load_movies(jsonl_path, only_ids=None, chunk=5000):
 
 if __name__ == "__main__":
 
-    # filter only movies that exist in MovieLens links (remove this?)
+    # filter only movies that exist in MovieLens links
     try:
         ml_to_tmdb = pickle.load(open("ml_to_tmdb.pkl", "rb"))
         id_filter = {t for t in ml_to_tmdb.values() if t is not None}
