@@ -10,18 +10,6 @@ Outputs (in OUT_DIR):
   - clean_keywords.jsonl
   - clean_links.jsonl
   - clean_ratings.jsonl          (keeps only ratings that map to a valid tmdbId in links)
-
-Notes:
-- Uses only stdlib. No pandas required.
-- Parsing of embedded lists uses ast.literal_eval.
-- Dates normalized to ISO YYYY-MM-DD (invalid/missing -> null).
-- Numeric zeros treated per your decisions (budget/revenue/runtime zeros -> null; vote_count keeps zeros).
-- vote_average kept as-is; if vote_count == 0 we set vote_average to null (indicates "no votes yet").
-- belongs_to_collection stays null (not []), other list fields -> [] when missing.
-- credits: drop entries missing BOTH id and name; dedupe cast by person id (keep lowest order), crew by (person id, job).
-- keywords: merge duplicate movie rows, dedupe items by keyword.id, drop missing id/name, lowercase name only for dedupe compare.
-- links: keep first mapping per tmdbId (drop conflicting later rows), keep missing tmdbId as null.
-- ratings: cast types; drop ratings whose movieId does not map to a tmdbId present in clean_links.
 """
 
 from pathlib import Path
@@ -55,10 +43,12 @@ O_RATINGS = OUT_DIR / "clean_ratings.jsonl"
 
 
 def as_str(x):
+    """Return a safe string for whitespace checks (handles None)."""
     return "" if x is None else str(x)
 
 
 def to_float_or_none(x):
+    """Parse a value to float; return None on failure or blank."""
     try:
         s = as_str(x).strip()
         if s == "":
@@ -70,6 +60,7 @@ def to_float_or_none(x):
 
 
 def to_int_or_none(x):
+    """Parse a value to int; return None on failure or blank."""
     try:
         s = as_str(x).strip()
         if s == "":
@@ -92,6 +83,7 @@ def parse_list(cell):
 
 
 def parse_iso_date_or_none(s):
+    """Return ISO date 'YYYY-MM-DD' or None for invalid/missing values."""
     s = as_str(s).strip()
     if not s:
         return None

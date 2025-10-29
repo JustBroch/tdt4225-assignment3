@@ -1,6 +1,13 @@
-# save as: viz_entries.py
+"""Utilities to summarize the raw CSV files (rows, cols, simple per-movie stats).
+
+This module provides small summary helpers used during exploratory
+analysis: row/column counts, per-file "entries per movie" summaries and a
+small textual bar chart helper.
+"""
+
 from pathlib import Path
-import csv, ast
+import csv
+import ast
 from collections import defaultdict
 
 DATA_DIR = Path(__file__).resolve().parent / "data" / "raw"
@@ -14,6 +21,7 @@ FILES = [
 ]
 
 def parse_list(cell):
+    """Parse JSON-ish list cells; returns an empty list on invalid input."""
     try:
         s = (cell or "").strip()
         if not s or s.lower() in {"null", "none", "false"}:
@@ -23,10 +31,17 @@ def parse_list(cell):
     except Exception:
         return []
 
-def avg(xs): return round(sum(xs)/len(xs), 2) if xs else 0.0
-def safe_max(xs): return max(xs) if xs else 0
+def avg(xs):
+    """Return rounded average of a sequence or 0.0 when empty."""
+    return round(sum(xs) / len(xs), 2) if xs else 0.0
+
+
+def safe_max(xs):
+    """Return max of sequence or 0 when empty."""
+    return max(xs) if xs else 0
 
 def count_rows_cols(path: Path):
+    """Return (rows, cols) for CSV at ``path`` (rows excludes header)."""
     with path.open("r", encoding="utf-8", errors="replace", newline="") as f:
         r = csv.reader(f)
         try:
@@ -37,7 +52,11 @@ def count_rows_cols(path: Path):
         return rows, len(header)
 
 def summarize_movies_metadata(p: Path):
-    # entries per movie = genres + prod_companies + prod_countries + spoken_langs
+    """Return (n_movies, avg_entries, max_entries) for movies_metadata.csv.
+
+    Entries per movie is computed as sum of lengths of genres,
+    production_companies, production_countries and spoken_languages.
+    """
     entries, n = [], 0
     with p.open("r", encoding="utf-8", errors="replace", newline="") as f:
         r = csv.DictReader(f)
@@ -52,7 +71,7 @@ def summarize_movies_metadata(p: Path):
     return n, avg(entries), safe_max(entries)
 
 def summarize_credits(p: Path):
-    # entries per movie = cast + crew
+    """Return (n_movies, avg_entries, max_entries) where entries = cast+crew sizes."""
     entries, n = [], 0
     with p.open("r", encoding="utf-8", errors="replace", newline="") as f:
         r = csv.DictReader(f)
@@ -63,7 +82,7 @@ def summarize_credits(p: Path):
     return n, avg(entries), safe_max(entries)
 
 def summarize_keywords(p: Path):
-    # entries per movie = #keywords
+    """Return (n_movies, avg_entries, max_entries) for keywords.csv (keywords per movie)."""
     entries, n = [], 0
     with p.open("r", encoding="utf-8", errors="replace", newline="") as f:
         r = csv.DictReader(f)
@@ -74,7 +93,7 @@ def summarize_keywords(p: Path):
     return n, avg(entries), safe_max(entries)
 
 def summarize_ratings(p: Path):
-    # entries per movie = #ratings for that movie
+    """Return (n_movies, avg_ratings_per_movie, max_ratings_per_movie)."""
     counts = defaultdict(int)
     total = 0
     with p.open("r", encoding="utf-8", errors="replace", newline="") as f:
@@ -86,7 +105,7 @@ def summarize_ratings(p: Path):
     return len(per_movie), avg(per_movie), safe_max(per_movie)
 
 def summarize_links(p: Path):
-    # entries per movie = 1 (mapping row)
+    """Return simple summary for links.csv (rows, avg_entries=1.0, max=1)."""
     rows = 0
     with p.open("r", encoding="utf-8", errors="replace", newline="") as f:
         r = csv.DictReader(f)
@@ -96,7 +115,9 @@ def summarize_links(p: Path):
     return rows, 1.0, 1
 
 def bar(value, max_value, width=40):
-    if max_value <= 0: return ""
+    """Return a small text bar chart segment for display (uses block char)."""
+    if max_value <= 0:
+        return ""
     n = int(round((value / max_value) * width))
     return "█" * max(n, 1)  # at least 1 block if value > 0
 

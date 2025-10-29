@@ -1,3 +1,10 @@
+"""Quick file-size and per-file summaries for the dataset CSVs.
+
+This helper is intended for developer convenience. It summarizes row/col
+counts and provides small per-file summaries. The DATA_DIR constant points
+to the expected raw CSV location; update it if your dataset lives elsewhere.
+"""
+
 from pathlib import Path
 import csv
 import ast
@@ -18,23 +25,24 @@ FILES = [
     "ratings_small.csv" if USE_RATINGS_SMALL else "ratings.csv",
 ]
 
+
 # --------------- UTILITIES ---------------
 def as_str(x):
-    """Return a string for whitespace/emptiness checks; handles None safely."""
+    """Return a safe string for whitespace/emptiness checks; handles None."""
     return "" if x is None else str(x)
 
+
 def to_float_safe(x):
-    """Parse float; returns None on failure (handles None/blank/garbage)."""
+    """Parse a float value; returns None on failure or blank."""
     try:
         s = as_str(x).strip()
         return float(s) if s else None
     except Exception:
         return None
 
+
 def parse_list(cell):
-    """
-    Parse JSON-ish cell (single quotes, null/None/False). Always return a list.
-    """
+    """Parse JSON-ish list-like CSV cells and return a list (empty on invalid)."""
     try:
         s = as_str(cell).strip()
         if not s or s.lower() in {"null", "none", "false"}:
@@ -44,19 +52,27 @@ def parse_list(cell):
     except Exception:
         return []
 
+
 def avg(xs):
+    """Return rounded average of a sequence or 0.0 when empty."""
     return round(sum(xs) / len(xs), 2) if xs else 0.0
 
+
 def safe_max(xs):
+    """Return max of sequence or 0 when empty."""
     return max(xs) if xs else 0
 
+
 def bar(value, max_value, width=40):
+    """Return a small text bar for terminal visualization."""
     if max_value <= 0:
         return ""
     n = int(round((value / max_value) * width))
     return "█" * max(n, 1) if value > 0 else ""
 
+
 def count_rows_cols(path: Path):
+    """Return (rows, cols) for CSV at ``path`` (rows excludes header)."""
     with path.open("r", encoding="utf-8", errors="replace", newline="") as f:
         r = csv.reader(f)
         try:
